@@ -1,0 +1,13 @@
+function DECODING_RESULTS=CrossGroupShuffleDecoding(the_cross_validator1,the_cross_validator2)
+
+DECODING_RESULTS=cell(1,2);
+
+DECODING_RESULTS1=the_cross_validator1.run_cv_decoding;
+clear the_cross_validator1
+DECODING_RESULTS{1}=DECODING_RESULTS1;
+clear DECODING_RESULTS1
+
+DECODING_RESULTS2=the_cross_validator2.run_cv_decoding;
+clear the_cross_validator2
+DECODING_RESULTS{2}=DECODING_RESULTS2;
+clear DECODING_RESULTS2

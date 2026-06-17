@@ -1,0 +1,215 @@
+%the code was used to calculate the decoding efficiency with the Neural Decoding Toolbox
+TargetBrainID='AI';%define the brain area for summary
+IsShffleDecoding=0;
+Decodingclassifier=1;%1 for max_correlation_coefficient_CL£¬2 for poisson_naive_bayes_CL£¬3 for support vector machine
+DecodingForSamTestDecisionTrialType=1;% Decoding for 1-sample odor,2-test odor, 3-decision(FC or CR in nonpair trials), 4-trial type(Pair-Nonpair)
+IsPlotTCTDecodingResults=0;
+ShuffleDecodingDir=[];%'ShuffleDecoding-AI-for Sample Odor-10-10-150-470-MCC';%define the directory of shuffle decoding results files
+
+IsNormalizedData=1;
+PickUpNeuronsWithOdorSelectivity=1;
+num_neuron_ForDecoding=227; %371 for all and 242 selective neuron for block design
+All_bin_width=[200 250 300 400 500];%define the bin width for each sliding window
+step_size = 50;
+All_num_cv_splits =[10 15 20]; %the trial number for each stimulus condition used to perform the decoding analysis; test times
+% num_trial_ForEachCondition=40;%define the trial number used for training data(template) in class (basic_DS): line 490 in (get_data) function
+num_times_to_repeat_each_label_per_cv_split= 2;
+%num_times_to_repeat_each_label_per_cv_split= floor(num_trial_ForEachCondition/ num_cv_splits);
+if IsShffleDecoding==1
+    NullDistributionNum = 200;
+    num_resample_runs = 10;
+    PlotFigure=0;
+else
+    NullDistributionNum =1;
+    num_resample_runs = 50;
+    PlotFigure=1;
+end
+StartTime=2;%start from 2 second after to 4s baseline(which means 4-2=2s before the sample odor)
+%%
+UnitSummaryFile=dir(['*' TargetBrainID '-DPA-AllUnitsSummary*.mat']);
+if size(UnitSummaryFile,1)~=0
+    load(UnitSummaryFile.name);
+    tempTotalUnitSplitData=TotalUnitSplitData;
+    TimeGain=tempTotalUnitSplitData.TimeGain{1}(1);
+    Path=pwd;
+    %%
+    %pick up the neurons with significant delay period sample odor selectivity
+    if PickUpNeuronsWithOdorSelectivity==1&&DecodingForSamTestDecisionTrialType==1
+        [tempTotalUnitSplitData,NeuronIndexWithDelayOdorSelectivity,AllUnitOdorSelectivity]=...
+            PickUpSignificantSelectiveNeurons(tempTotalUnitSplitData,DelayMN,TimeGain);
+        disp('---Sample Odor selective neuron number/Total Neuron---')
+        disp(['---' num2str(num_neuron_ForDecoding) '/' num2str(size(AllUnitOdorSelectivity.NLIsSignificant,1)) '---'])
+    end
+    %%
+    SPlen=min(vertcat(tempTotalUnitSplitData.ShortSPlen{:}));
+    MeanTrialLength=SPlen*1/TimeGain;
+    TotalSingleUnitNum=length(tempTotalUnitSplitData.AllSequentialAllSP);
+    TrialLaserDelay=tempTotalUnitSplitData.TrialLaserDelay{1};
+    LaserPhase=unique(tempTotalUnitSplitData.TrialLaserDelay{1}(:,2));%2 for laser in block design
+    IsLaserGroup=max(LaserPhase);%0 no laser condition, 1 for laser condition
+    for inum_cv_splits=1:length(All_num_cv_splits)
+        num_cv_splits=All_num_cv_splits(inum_cv_splits);
+        for iBin_width=1:length(All_bin_width)%go through each bin
+            bin_width=All_bin_width(iBin_width);
+            for iIsLaserTrial=1:length(LaserPhase)%go through laser or no laser trial
+                IsLaserTrial=LaserPhase(iIsLaserTrial);
+                [TitleName,Classifier]=ConstructNDTDecodingTitle(TargetBrainID,Decodingclassifier,DecodingForSamTestDecisionTrialType...
+                    ,IsShffleDecoding,num_resample_runs,num_cv_splits,num_times_to_repeat_each_label_per_cv_split,IsLaserGroup...
+                    ,num_neuron_ForDecoding,PickUpNeuronsWithOdorSelectivity,bin_width,IsNormalizedData,IsLaserTrial);
+                disp(['----- ' TitleName '-----'])
+                %% Step 1.  Construct raw data
+                disp('-----Step 1 Construct raw data-----')
+                %Construct the raw trial matrix
+                binned_data=cell(1,TotalSingleUnitNum);
+                stimulus_ID=cell(1,TotalSingleUnitNum);
+                AllNeuronTrialNum=zeros(1,TotalSingleUnitNum);
+                for iNeuron=1:TotalSingleUnitNum% go through each units
+                    SequentialAllSP=tempTotalUnitSplitData.AllSequentialAllSP{iNeuron};
+                    TrialsJudgement=tempTotalUnitSplitData.TrialsJudgement{iNeuron}(1:size(SequentialAllSP,2),:);
+                    TrialLaserDelay=tempTotalUnitSplitData.TrialLaserDelay{iNeuron}(1:size(SequentialAllSP,2),:);
+                    %%
+                    %get the target trial index according to the identity of the first odorant
+                    [temp_stimulus_ID,TrialIndex]= GetNDTTrialID(DecodingForSamTestDecisionTrialType,TrialsJudgement,TrialLaserDelay,IsLaserTrial);
+                    AllNeuronTrialNum(iNeuron)=length(TrialIndex);
+                    %%
+                    %construct binned data for each neuron
+                    %if ~isempty(temp_stimulus_ID)
+                    if length(TrialIndex)>=num_cv_splits*num_times_to_repeat_each_label_per_cv_split*2
+                        stimulus_ID{1,iNeuron}=temp_stimulus_ID;
+                        binned_data{1,iNeuron}=ConstructBinnedDataForNDT(SequentialAllSP,TrialIndex,bin_width,step_size,MeanTrialLength,Decodingclassifier);
+                    end %create_binned_data_from_raster_data
+                end
+                %%
+                %exclud the neurons with two few trials
+                TwoFewTrialNeuronIndex=cellfun(@isempty,stimulus_ID,'uniformoutput',1);
+                stimulus_ID(TwoFewTrialNeuronIndex)=[];
+                binned_data(TwoFewTrialNeuronIndex)=[];
+                %% Step 2: Create a datasource object
+                disp('-----Step 2 Create a datasource object-----')
+                % create the basic datasource object
+                if Decodingclassifier==2
+                    binned_site_info.binning_parameters.bin_width=bin_width;
+                    save('PNBBinnedData','binned_data','binned_site_info')
+                    % if using the Poison Naive Bayes classifier, load the data as spike counts by setting the load_data_as_spike_counts flag to 1
+                    ds = basic_DS('PNBBinnedData', stimulus_ID, num_cv_splits, 1);
+                else
+                    ds = basic_DS(binned_data, stimulus_ID, num_cv_splits);
+                end
+                % can have multiple repetitions of each label in each cross-validation split (which is a faster way to run the code that uses most of the data)
+                ds.num_times_to_repeat_each_label_per_cv_split= num_times_to_repeat_each_label_per_cv_split;
+                %defien wether perform decoding analysis with shuffle data
+                ds.randomly_shuffle_labels_before_running=IsShffleDecoding;
+                %define the neuron number used to perform decoding analysis
+                ds.num_resample_sites =num_neuron_ForDecoding;
+                %define the event period used to perform decoding
+                BinStart=StartTime*1000/step_size+1;
+                BinEnd=floor(MeanTrialLength-4)*1000/step_size;
+                ds.time_periods_to_get_data_from = num2cell(BinStart:BinEnd);
+                %% Step 3.  Create a feature preprocessor object
+                disp('-----Step 3 Create a feature preprocessor object-----')
+                % create a feature preprocess that z-score normalizes each feature
+                if IsNormalizedData==1
+                    the_feature_preprocessors{1} = zscore_normalize_FP;
+                else
+                    the_feature_preprocessors=[];
+                end
+                %% Step 4.  Create a classifier object
+                disp('-----Step 4 Create a classifier object-----')
+                % select a classifier
+                if Decodingclassifier==1
+                    the_classifier = max_correlation_coefficient_CL;
+                elseif Decodingclassifier==2
+                    % use a poisson naive bayes classifier (note: the data needs to be loaded as spike counts to use this classifier)
+                    the_classifier = poisson_naive_bayes_CL;
+                elseif Decodingclassifier==3
+                    % use a support vector machine (see the documentation for all the optional parameters for this classifier)
+                    the_classifier = libsvm_CL;
+                end
+                %% Step 5.  create the cross-validator
+                disp('-----Step 5 create the cross-validator-----')
+                if Decodingclassifier~=2%MCC, SVM
+                    the_cross_validator = standard_resample_CV(ds, the_classifier, the_feature_preprocessors);
+                else%integers were needed for PNB classifier
+                    the_cross_validator = standard_resample_CV(ds, the_classifier);
+                end
+                the_cross_validator.num_resample_runs = num_resample_runs;
+                %more accurate results, but to save time we are using a small number here
+                if IsPlotTCTDecodingResults==0
+                    the_cross_validator.test_only_at_training_times = 1;
+                end
+                %% Step 6.  Run the decoding analysis
+                disp('-----Step 6 Run the decoding analysis -----')
+                % run the decoding analysis  run_cv_decoding
+                the_cross_validator.display_progress.zero_one_loss=0;
+                Path=pwd;
+                if IsShffleDecoding==1
+                    mkdir(TitleName)
+                    ShuffleDecodingResultsDir=[Path '\' TitleName];
+                    cd(ShuffleDecodingResultsDir)
+                    for iNullDis=1:NullDistributionNum
+                        DECODING_RESULTS = the_cross_validator.run_cv_decoding; %run_cv_decoding
+                        %decoding_results [num_resample_runs x num_cv_splits x num_training_times x num_test_times]
+                        save([TitleName '-' num2str(iNullDis)], 'DECODING_RESULTS');
+                    end
+                else
+                    DECODING_RESULTS = the_cross_validator.run_cv_decoding; %run_cv_decoding
+                    save(TitleName, 'DECODING_RESULTS');
+                    if ~isempty(ShuffleDecodingDir)%exist('ShuffleDecodingDir','var')
+                        ShuffleDecodingResultsDir=[Path '\' ShuffleDecodingDir '\'];
+                    else
+                        ShuffleDecodingResultsDir=[];
+                    end
+                end
+                %% Step 7.  Plot the basic results
+                disp('-----Step 7 Plot the basic results -----')
+                disp(['----- ' TitleName '-----'])
+                % which results should be plotted (only have one result to plot here)
+                TimeBinNumber=size(DECODING_RESULTS.ZERO_ONE_LOSS_RESULTS.mean_decoding_results,1);
+                result_names{1} = TitleName;
+                if IsShffleDecoding~=1
+                    % create an object to plot the results
+                    plot_obj = plot_standard_results_object(result_names);
+                    %plot STD across resample runs
+                    plot_obj.errorbar_file_names={TitleName};
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    %difine the shuffled decoing results directory for
+                    %permutation test
+                    if ~isempty(ShuffleDecodingResultsDir)
+                        plot_obj.p_values={ShuffleDecodingResultsDir};
+                    else
+                        plot_obj.p_values=[];
+                    end
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    %plot_obj.p_values={0.01*ones(1,TimeBinNumber)};
+                    % optional argument, can plot different types of results
+                    %plot_obj.result_type_to_plot = 2;  % for example, setting this to 2 plots the normalized rank results
+                    plot_obj.plot_time_intervals={-(4-StartTime):step_size/1000:(TimeBinNumber*step_size/1000-2)-step_size/1000};
+                    plot_obj.xlabel_name='Time(s)';
+                    plot_obj.legend_names={[Classifier '-Sample Decoding']};
+                    plot_obj.plot_inds={1:TimeBinNumber};
+                    plot_obj.errorbar_type_to_plot=1;
+                    plot_obj.significant_event_times=[0 OdorMN OdorMN+DelayMN 2*OdorMN+DelayMN 2*OdorMN+DelayMN+ResponseMN 2*OdorMN+DelayMN+ResponseMN+WaterMN];
+                    
+                    plot_obj.plot_results; % actually plot the results  plot_results
+                    title(TitleName)
+                    text(8.5,80,['NeuronNum=' num2str(num_neuron_ForDecoding)],'fontsize',12,'color',[0 0 1])
+                    saveas(gcf,TitleName ,'fig')%
+                    saveas(gcf,TitleName ,'png')%
+                    close all
+                end
+                %% Step 8.  Plot the TCT matrix
+                if IsPlotTCTDecodingResults==1&&IsShffleDecoding~=1
+                    plot_obj = plot_standard_results_TCT_object(result_names);
+                    plot_obj.significant_event_times = 0;   % the time when the stimulus was shown
+                    plot_obj.plot_results;  % plot the TCT matrix and a movie showing if information is coded by a dynamic population code
+                end
+                cd(Path)
+                if IsShffleDecoding~=1
+                    save([TitleName '-All Parameters'],'DECODING_RESULTS','binned_data','stimulus_ID','DecodingForSamTestDecisionTrialType'...
+                        ,'IsShffleDecoding','num_resample_runs','num_cv_splits','num_neuron_ForDecoding'...
+                        ,'bin_width','step_size','UnitSummaryFile','StartTime','OdorMN','DelayMN','ResponseMN','WaterMN','ITIMN');
+                end
+            end
+        end
+    end
+end
