@@ -394,5 +394,4 @@ if strcmp(AnalysisStyle, 'Separation')
         end
     end
 
-    %% 保存小鼠分组信息
     save(fullfile(filesavepath,sprintf('%dGroupsMiceID_%s.mat',numel(GroupName),phase)),'GroupName','filename','-v7.3');
