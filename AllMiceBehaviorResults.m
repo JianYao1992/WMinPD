@@ -2,6 +2,7 @@
 % support two analysis modes: 'Distinct sessions or windows' and 'Phase'
 
 clear; clc; close all;
+addpath(genpath('/home/yaojian/Codes/Function'));
 
 %% Core parameter configuration
 AnalysisStyle = 'Separation';  % optional：'Seperation' or 'Integration'
