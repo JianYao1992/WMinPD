@@ -20,7 +20,7 @@ cfg.Const = struct(...
 'BaseLen', 4,...              % Baseline duration (s)
 'SampOdorLen', 1,...          % Sample odor duration (s)
 'TestOdorLen', 1,...          % Test odor duration (s)
-'TestRespInterval', 1,...     % Post-test response interval (s)
+'TestRespInterval', 0,...     % Post-test response interval (s)
 'RespWindowLen', 1,...        % Response window duration (s)
 'AfterTrial', 4,...           % Post-trial duration (s)
 'LickThres', 31,...           % Lick interval threshold (ms, filter false triggers)
