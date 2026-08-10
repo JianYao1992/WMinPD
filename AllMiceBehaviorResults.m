@@ -1,0 +1,503 @@
+%% Behavioral performance analysis for population of mice
+% support two analysis modes: 'Integration' and 'Seperation'
+
+clear; clc; close all;
+addpath(genpath('D:\Codes\Function'));
+
+%% Core parameter configuration
+AnalysisStyle = 'Separation';  % optional: 'Integration' and 'Separation'
+% GroupName = {'PBS','PFF'};  % adjust groups as needed
+% GroupName = {'Littermates','SNCA','SNCA_ChR2'};  % adjust groups as needed
+% GroupName = {'SNCA_mCherry','SNCA_ChR2'};  % adjust groups as needed
+GroupName = {'Monomer injection','PFF injection','PFF injection activation'};  % adjust groups as needed
+filesavepath = 'D:\Data\20241028_5MpostPFF_VaryDelayODPA_Optogenetics_RQDE\Training';  % path to save results
+IsPseudoDelay = 0;
+BeforeTrial = 4; SampOdorLen = 1; DelayLen = [10 20]; TestOdorLen = 1;
+TestRespInterval = 0; RespWindowLen = 1; TimeGain = 10; LickEfficiencyWindowLen = 0.3;
+ColorSet = {[0 0 0],[0 125 0]/255,[67 106 178]/255};  % group colors
+% ColorSet = {[0 125 0]/255,[67 106 178]/255};  % group colors
+% ColorSet = {[128 0 128]/255,[222 137 44]/255};  % group colors
+ColorSet = {[128 0 128]/255,[222 137 44]/255,[67 106 178]/255};  % group colors
+LineWidth = 2;
+LineStyle = '-';
+MarkerShape = 'o';
+MarkerSize = 10;
+TickLabelSize = 16;
+AxisLabelSize = 16;
+TimesID = [1 2 3 4 5 6];
+TimesNum = numel(TimesID); % number of learning days
+TrialNuminWindow = [];
+
+% mode-specific parameters
+if strcmp(AnalysisStyle, 'Integration')
+    % phase name configuration
+    if IsPseudoDelay == 0
+        phase = sprintf('Learning day %d-%d',TimesID(1),TimesID(end));
+        Category = 'Session';
+    else
+        phase = sprintf('Learning window %d-%d',TimesID(1),TimesID(end));
+        Category = 'Window';
+    end
+elseif strcmp(AnalysisStyle, 'Separation')
+    phase = 'Learning phase';  % can be changed to 'Trained phase'
+    Category = 'Session';
+
+    % X-axis name configuration
+    if strcmp(phase,'Learning phase')
+        XaxisName = 'Learning day';
+    else
+        XaxisName = 'Welltrained';
+    end
+    % pseudo-delay related parameters
+    if IsPseudoDelay == 1
+        Category = 'Window';
+        TotalTrialNum = 192;
+        MaxWindowNumInSess = 8;
+        TrialNuminWindow = TotalTrialNum/(numel(DelayLen)*MaxWindowNumInSess);
+    end
+end
+
+%% Load data
+filename = cell(1,numel(GroupName));
+Dataofmice = cell(1,numel(GroupName));
+for iGroup = 1:numel(GroupName)
+    [filename{iGroup},~] = uigetfile({'*.mat','Matlab files(*.mat)';},'Pick some files','MultiSelect','on');
+    Dataofmice{iGroup} = cell(size(filename{iGroup},2),1);
+    for iMouse = 1:size(filename{iGroup},2)
+        Dataofmice{iGroup}{iMouse} = load(filename{iGroup}{iMouse});
+    end
+end
+
+%% Data processing //////select different processing functions based on analysis mode//////
+AllSessionMiceBehavior = cell(1,numel(GroupName));
+for iGroup = 1:numel(GroupName)
+    % calculate licking efficiency analysis window
+    DelayWind = cell(numel(filename{iGroup}),numel(DelayLen));
+    TestOdorWind = cell(numel(filename{iGroup}),numel(DelayLen));
+    LickEffAnaWind = cell(numel(filename{iGroup}),numel(DelayLen));
+    for iMouse = 1:numel(filename{iGroup})
+        for iDelay = 1:numel(DelayLen)
+            if iGroup == 1 && iMouse <= 5
+                DelayWind{iMouse,iDelay} = horzcat(...
+                    BeforeTrial+SampOdorLen,BeforeTrial+SampOdorLen+DelayLen(iDelay));
+                TestOdorWind{iMouse,iDelay} = horzcat(...
+                    BeforeTrial+SampOdorLen+DelayLen(iDelay)+TestOdorLen,BeforeTrial+SampOdorLen+DelayLen(iDelay)+TestOdorLen+1);
+                LickEffAnaWind{iMouse,iDelay} = horzcat(...
+                    BeforeTrial+SampOdorLen+DelayLen(iDelay)+TestOdorLen+1, ...
+                    BeforeTrial+SampOdorLen+DelayLen(iDelay)+TestOdorLen+1+LickEfficiencyWindowLen);
+            else
+                DelayWind{iMouse,iDelay} = horzcat(...
+                    BeforeTrial+SampOdorLen,BeforeTrial+SampOdorLen+DelayLen(iDelay));
+                TestOdorWind{iMouse,iDelay} = horzcat(...
+                    BeforeTrial+SampOdorLen+DelayLen(iDelay),BeforeTrial+SampOdorLen+DelayLen(iDelay)+TestOdorLen);
+                LickEffAnaWind{iMouse,iDelay} = horzcat(...
+                    BeforeTrial+SampOdorLen+DelayLen(iDelay)+TestOdorLen+TestRespInterval, ...
+                    BeforeTrial+SampOdorLen+DelayLen(iDelay)+TestOdorLen+TestRespInterval+LickEfficiencyWindowLen);
+            end
+        end
+    end
+    % call the corresponding data summary function
+    AllSessionMiceBehavior{iGroup} = SummarizeAllPerfandLick(Dataofmice{iGroup},AnalysisStyle,TimesID,TimesNum,DelayWind,TestOdorWind,LickEffAnaWind,TrialNuminWindow,DelayLen,TimeGain,Category);
+end
+
+%% Result visualization and statistical analysis
+if strcmp(AnalysisStyle, 'Integration')
+    for iDelay = 1:numel(DelayLen)
+        tempDelayLen = DelayLen(iDelay);
+        % performance
+        figure('Position',[219 303 600 900]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Perf,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Perf(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Perf));
+        end
+        % statistical test
+        if numel(GroupName) == 2
+            Pvalue_Perf = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).Perf,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).Perf);
+        elseif numel(GroupName) > 2
+            Perf = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                Perf = [Perf; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Perf];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Perf),1)];
+            end
+            [Pvalue_Perf,tbl_Perf,stats_Perf] = anova1(Perf,GroupID,'off');
+            [Pvalue_Pairwise_Perf,~,~,~] = multcompare(stats_Perf,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for Performance comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_Perf','stats_Perf','Pvalue_Pairwise_Perf','-v7.3');
+        end
+        SetXYaxisProperty([],1,[],0.6,1.6+0.8*(numel(GroupName)-1),'Group',0,20,100,0,100,'Performance correct rates (%)',12,12);
+        title(sprintf('p = %d',Pvalue_Perf));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('Performance comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % hit rate
+        figure('Position',[219 303 600 900]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).HitRate,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).HitRate(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).HitRate));
+        end
+        if numel(GroupName) == 2
+            Pvalue_HitRate = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).HitRate,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).HitRate);
+        elseif numel(GroupName) > 2
+            HitRate = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                HitRate = [HitRate; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).HitRate];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).HitRate),1)];
+            end
+            [Pvalue_HitRate,tbl_HitRate,stats_HitRate] = anova1(HitRate,GroupID,'off');
+            [Pvalue_Pairwise_HitRate,~,~,~] = multcompare(stats_HitRate,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for Hit rate comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_HitRate','stats_HitRate','Pvalue_Pairwise_HitRate','-v7.3');
+        end
+        SetXYaxisProperty([],1,[],0.6,1.6+0.8*(numel(GroupName)-1),'Group',0,20,100,0,100,'Hit rates (%)',12,12);
+        title(sprintf('p = %d',Pvalue_HitRate));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('Hit rates comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % false alarm rate
+        figure('Position',[219 303 600 900]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).FalseRate,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).FalseRate(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).FalseRate));
+        end
+        if numel(GroupName) == 2
+            Pvalue_FalseRate = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).FalseRate,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).FalseRate);
+        elseif numel(GroupName) > 2
+            FalseRate = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                FalseRate = [FalseRate; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).FalseRate];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).FalseRate),1)];
+            end
+            [Pvalue_FalseRate,tbl_FalseRate,stats_FalseRate] = anova1(FalseRate,GroupID,'off');
+            [Pvalue_Pairwise_FalseRate,~,~,~] = multcompare(stats_FalseRate,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for False rate comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_FalseRate','stats_FalseRate','Pvalue_Pairwise_FalseRate','-v7.3');
+        end
+        SetXYaxisProperty([],1,[],0.6,1.6+0.8*(numel(GroupName)-1),'Group',0,20,100,0,100,'False alarm rates (%)',12,12);
+        title(sprintf('p = %d',Pvalue_FalseRate));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('False rates comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % CR rate
+        figure('Position',[219 303 600 900]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).CRRate,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).CRRate(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).CRRate));
+        end
+        if numel(GroupName) == 2
+            Pvalue_CRRate = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).CRRate,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).CRRate);
+        elseif numel(GroupName) > 2
+            CRRate = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                CRRate = [CRRate; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).CRRate];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).CRRate),1)];
+            end
+            [Pvalue_CRRate,tbl_CRRate,stats_CRRate] = anova1(CRRate,GroupID,'off');
+            [Pvalue_Pairwise_CRRate,~,~,~] = multcompare(stats_CRRate,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for CR rate comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_CRRate','stats_CRRate','Pvalue_Pairwise_CRRate','-v7.3');
+        end
+        SetXYaxisProperty([],1,[],0.6,1.6+0.8*(numel(GroupName)-1),'Group',0,20,100,0,100,'CR rates (%)',12,12);
+        title(sprintf('p = %d',Pvalue_CRRate));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('CR rates comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % plot bar graphs of d'
+        figure('Position',[219 303 300 600]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Dprime,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Dprime(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Dprime));
+        end
+        if numel(GroupName) == 2
+            Pvalue_Dprime = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).Dprime,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).Dprime);
+        elseif numel(GroupName) > 2
+            Dprime = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                Dprime = [Dprime; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Dprime];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).Dprime),1)];
+            end
+            [Pvalue_Dprime,tbl_Dprime,stats_Dprime] = anova1(Dprime,GroupID,'off');
+            [Pvalue_Pairwise_Dprime,~,~,~] = multcompare(stats_Dprime,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for Dprime comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_Dprime','stats_Dprime','Pvalue_Pairwise_Dprime','-v7.3');
+        end
+        SetXYaxisProperty([],1,TimesID,0.5,1.7+0.8*(numel(GroupName)-1),'Group',0,1,3,0,4,'Dprime',12,12);
+        title(sprintf('P=%d',Pvalue_Dprime));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('Dprime comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % plot response criteria
+        figure('Position',[219 303 300 600]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).ResponseCriteria,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).ResponseCriteria(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).ResponseCriteria));
+        end
+        if numel(GroupName) == 2
+            Pvalue_ResponseCriteria = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).ResponseCriteria,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).ResponseCriteria);
+        elseif numel(GroupName) > 2
+            ResponseCriteria = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                ResponseCriteria = [ResponseCriteria; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).ResponseCriteria];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).ResponseCriteria),1)];
+            end
+            [Pvalue_ResponseCriteria,tbl_ResponseCriteria,stats_ResponseCriteria] = anova1(ResponseCriteria,GroupID,'off');
+            [Pvalue_Pairwise_ResponseCriteria,~,~,~] = multcompare(stats_ResponseCriteria,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for ResponseCriteria comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_ResponseCriteria','stats_ResponseCriteria','Pvalue_Pairwise_ResponseCriteria','-v7.3');
+        end
+        SetXYaxisProperty([],1,TimesID,0.6,1.6+0.8*(numel(GroupName)-1),'Group',-5,1,5,-3,0,'Response Criteria',12,12);
+        title(sprintf('P=%d',Pvalue_ResponseCriteria));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('ResponseCriteria comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % plot pre licking rates during the delay period
+        figure('Position',[219 303 300 600]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_Delay,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_Delay(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_Delay));
+        end
+        if numel(GroupName) == 2
+            Pvalue_PreLickingRate_Delay = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).PreLickingRate_Delay,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).PreLickingRate_Delay);
+        elseif numel(GroupName) > 2
+            PreLickingRate_Delay = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                PreLickingRate_Delay = [PreLickingRate_Delay; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_Delay];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_Delay),1)];
+            end
+            [Pvalue_PreLickingRate_Delay,tbl_PreLickingRate_Delay,stats_PreLickingRate_Delay] = anova1(PreLickingRate_Delay,GroupID,'off');
+            [Pvalue_Pairwise_PreLickingRate_Delay,~,~,~] = multcompare(stats_PreLickingRate_Delay,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for PreLickingRate_Delay comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_PreLickingRate_Delay','stats_PreLickingRate_Delay','Pvalue_Pairwise_PreLickingRate_Delay','-v7.3');
+        end
+        SetXYaxisProperty([],1,TimesID,0.6,1.6+0.8*(numel(GroupName)-1),'Group',0,0.2,1,0,1,'PreLickingRate_Delay (Hz)',12,12);
+        title(sprintf('P=%d',Pvalue_PreLickingRate_Delay));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('PreLickingRate_Delay comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % plot proportion of trials with pre licking rates during the delay period
+        figure('Position',[219 303 300 600]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_Delay,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_Delay(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_Delay));
+        end
+        if numel(GroupName) == 2
+            Pvalue_PreLickingProp_Delay = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).PreLickingProp_Delay,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).PreLickingProp_Delay);
+        elseif numel(GroupName) > 2
+            PreLickingProp_Delay = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                PreLickingProp_Delay = [PreLickingProp_Delay; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_Delay];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_Delay),1)];
+            end
+            [Pvalue_PreLickingProp_Delay,tbl_PreLickingProp_Delay,stats_PreLickingProp_Delay] = anova1(PreLickingProp_Delay,GroupID,'off');
+            [Pvalue_Pairwise_PreLickingProp_Delay,~,~,~] = multcompare(stats_PreLickingProp_Delay,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for PreLickingProp_Delay comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_PreLickingProp_Delay','stats_PreLickingProp_Delay','Pvalue_Pairwise_PreLickingProp_Delay','-v7.3');
+        end
+        SetXYaxisProperty([],1,TimesID,0.6,1.6+0.8*(numel(GroupName)-1),'Group',0,20,100,0,100,'Proportion of pre-lick delay-period trials (Hz)',12,12);
+        title(sprintf('P=%d',Pvalue_PreLickingProp_Delay));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('PreLickingProp_Delay comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % plot pre licking rates during the test-odor period
+        figure('Position',[219 303 300 600]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_TestOdor,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_TestOdor(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_TestOdor));
+        end
+        if numel(GroupName) == 2
+            Pvalue_PreLickingRate_TestOdor = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).PreLickingRate_TestOdor,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).PreLickingRate_TestOdor);
+        elseif numel(GroupName) > 2
+            PreLickingRate_TestOdor = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                PreLickingRate_TestOdor = [PreLickingRate_TestOdor; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_TestOdor];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingRate_TestOdor),1)];
+            end
+            [Pvalue_PreLickingRate_TestOdor,tbl_PreLickingRate_TestOdor,stats_PreLickingRate_TestOdor] = anova1(PreLickingRate_TestOdor,GroupID,'off');
+            [Pvalue_Pairwise_PreLickingRate_TestOdor,~,~,~] = multcompare(stats_PreLickingRate_TestOdor,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for PreLickingRate_TestOdor comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_PreLickingRate_TestOdor','stats_PreLickingRate_TestOdor','Pvalue_Pairwise_PreLickingRate_TestOdor','-v7.3');
+        end
+        SetXYaxisProperty([],1,TimesID,0.6,1.6+0.8*(numel(GroupName)-1),'Group',0,1,10,0,10,'PreLickingRate_TestOdor (Hz)',12,12);
+        title(sprintf('P=%d',Pvalue_PreLickingRate_TestOdor));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('PreLickingRate_TestOdor comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % plot proportion of trials with pre licking rates during the test-odor period
+        figure('Position',[219 303 300 600]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_TestOdor,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_TestOdor(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_TestOdor));
+        end
+        if numel(GroupName) == 2
+            Pvalue_PreLickingProp_TestOdor = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).PreLickingProp_TestOdor,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).PreLickingProp_TestOdor);
+        elseif numel(GroupName) > 2
+            PreLickingProp_TestOdor = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                PreLickingProp_TestOdor = [PreLickingProp_TestOdor; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_TestOdor];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).PreLickingProp_TestOdor),1)];
+            end
+            [Pvalue_PreLickingProp_TestOdor,tbl_PreLickingProp_TestOdor,stats_PreLickingProp_TestOdor] = anova1(PreLickingProp_TestOdor,GroupID,'off');
+            [Pvalue_Pairwise_PreLickingProp_TestOdor,~,~,~] = multcompare(stats_PreLickingProp_TestOdor,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for PreLickingProp_TestOdor comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_PreLickingProp_TestOdor','stats_PreLickingProp_TestOdor','Pvalue_Pairwise_PreLickingProp_TestOdor','-v7.3');
+        end
+        SetXYaxisProperty([],1,TimesID,0.6,1.6+0.8*(numel(GroupName)-1),'Group',0,20,100,0,100,'Proportion of pre-lick delay-period trials (Hz)',12,12);
+        title(sprintf('P=%d',Pvalue_PreLickingProp_TestOdor));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('PreLickingProp_TestOdor comparison-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % plot licking rates on hit trials
+        LickRate_Hit = cell(1,numel(GroupName));
+        figure('Position',[219 303 750 600]);
+        for iGroup = 1:numel(GroupName)
+            LickRate_Hit{iGroup} = AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).LickRate_Hit;
+            plotshadow(LickRate_Hit{iGroup},ColorSet{iGroup},2,3,-0.05-BeforeTrial,TimeGain);
+        end
+        % cluster-based permutation test
+        if numel(GroupName) == 2
+            [tempSigTime_1,tempSigTime_2] = ClusterBasedPermutationTest('Between recordings', LickRate_Hit{1},LickRate_Hit{2},size(LickRate_Hit{1},2),1000,0);
+        else
+            [tempSigTime_1,tempSigTime_2] = ClusterBasedPermutationTest('Between recordings', LickRate_Hit{2},LickRate_Hit{3},size(LickRate_Hit{2},2),1000,0);
+        end
+        LabelSignificantPositions(tempSigTime_1-BeforeTrial*TimeGain,TimeGain,5,ColorSet{1});
+        LabelSignificantPositions(tempSigTime_2-BeforeTrial*TimeGain,TimeGain,5,ColorSet{2});
+        % plot event-related curves
+        PlotEventCurve(0,SampOdorLen,tempDelayLen,TestOdorLen,RespWindowLen,1,8);
+        SetXYaxisProperty(-1*BeforeTrial,1,size(LickRate_Hit{1},2)/TimeGain-BeforeTrial,-0.3,size(LickRate_Hit{1},2)/TimeGain-BeforeTrial,'Time from sample onset (s)',...
+            0,2,8,0,8,'Lick rate (Hz)',12,12);
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('Lick rate comparison in Hit trials-delay%d trials-%s',tempDelayLen,phase)),'fig');
+        close;
+
+        % plot bar graphs of licking efficiency
+        figure('Position',[219 303 300 600]);
+        for iGroup = 1:numel(GroupName)
+            plotBarAndError(ColorSet{iGroup},1.1+0.8*(iGroup-1),AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).LickEfficiency,1);
+            arrayfun(@(x) plot(1.1+0.8*(iGroup-1)+rand()*0.6-0.3,AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).LickEfficiency(x,1),'o','MarkerSize',6,'MarkerFaceColor',ColorSet{iGroup},'MarkerEdgeColor','none'),1:numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).LickEfficiency));
+        end
+        if numel(GroupName) == 2
+            Pvalue_LickEfficiency = ranksum(AllSessionMiceBehavior{1}.(['delay' num2str(tempDelayLen)]).LickEfficiency,AllSessionMiceBehavior{2}.(['delay' num2str(tempDelayLen)]).LickEfficiency);
+        elseif numel(GroupName) > 2
+            LickEfficiency = []; GroupID = [];
+            for iGroup = 1:numel(GroupName)
+                LickEfficiency = [LickEfficiency; AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).LickEfficiency];
+                GroupID = [GroupID; iGroup*ones(numel(AllSessionMiceBehavior{iGroup}.(['delay' num2str(tempDelayLen)]).LickEfficiency),1)];
+            end
+            [Pvalue_LickEfficiency,tbl_LickEfficiency,stats_LickEfficiency] = anova1(LickEfficiency,GroupID,'off');
+            [Pvalue_Pairwise_LickEfficiency,~,~,~] = multcompare(stats_LickEfficiency,'CriticalValueType','lsd','Display','off');
+            save(fullfile(filesavepath,sprintf('Pvalue for LickEfficiency comparison_delay%d_%s.mat',tempDelayLen,phase)),'tbl_LickEfficiency','stats_LickEfficiency','Pvalue_Pairwise_LickEfficiency','-v7.3');
+        end
+        SetXYaxisProperty([],1,TimesID,0.5,1.7+0.8*(numel(GroupName)-1),'Group',0,10,100,0,100,'Lick efficiency(%)',12,12);
+        title(sprintf('P=%d',Pvalue_LickEfficiency));
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('Lick efficiency comparison-delay%d-posttestodor%d-%s',tempDelayLen,round(1000*LickEfficiencyWindowLen),phase)),'fig');
+        close;
+    end
+elseif strcmp(AnalysisStyle, 'Separation')
+    % Plot performance correct rates
+    for iDelay = 1:numel(DelayLen)
+        tempDelayLen = DelayLen(iDelay);
+        figure('Position',[219 303 750 600]);
+        CompareDiffGroupsTimeLapsedBehavior(phase, 'Perf', ['delay' num2str(tempDelayLen)], AllSessionMiceBehavior, ...
+            ColorSet, LineWidth, LineStyle, MarkerShape, ColorSet, ColorSet, MarkerSize, filesavepath);
+        legend(GroupName,'Location','southeast');
+        legend('boxoff');
+        % Set the coordinate axes
+        SetXYaxisProperty(1,1,TimesNum,0.5,TimesNum+0.5,XaxisName,0,20,100,0.4,1,'Performance correct rate (%)',TickLabelSize,AxisLabelSize);
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('Performance comparison-Separation-delay%d-%s',tempDelayLen,phase)),'fig');
+        close;
+    end
+    % Plot hit and CR rates
+    for iDelay = 1:numel(DelayLen)
+        figure('Position',[219 303 750 600]);
+        CompareDiffGroupsTimeLapsedBehavior(phase, 'Hit', ['delay' num2str(iDelay)], AllSessionMiceBehavior, ...
+            ColorSet, LineWidth, LineStyle, MarkerShape, ColorSet, ColorSet, MarkerSize, filesavepath);
+        CompareDiffGroupsTimeLapsedBehavior(phase, 'CR', ['delay' num2str(iDelay)], AllSessionMiceBehavior, ...
+            ColorSet, LineWidth, LineStyle, MarkerShape, ColorSet, ColorSet, MarkerSize, filesavepath);
+        legend(GroupName,'Location','southeast');
+        legend('boxoff');
+        % Set the coordinate axes
+        SetXYaxisProperty(1,1,TimesNum,0.5,TimesNum+0.5,XaxisName,0,20,100,0,100,'Hit and CR rates (%)',TickLabelSize,AxisLabelSize);
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('Hit and CR rates comparison-delay%d-%s',iDelay,phase)),'fig');
+        close;
+    end
+
+    % Plot licking efficiencies
+    for iDelay = 1:numel(DelayLen)
+        figure('Position',[219 303 750 600]);
+        CompareDiffGroupsTimeLapsedBehavior(phase, 'LickEfficiency', ['delay' num2str(iDelay)], AllSessionMiceBehavior, ...
+            ColorSet, LineWidth, LineStyle, MarkerShape, ColorSet, ColorSet, MarkerSize, filesavepath);
+        legend(GroupName,'Location','southeast');
+        legend('boxoff');
+        % Set the coordinate axes
+        SetXYaxisProperty(1,1,TimesNum,0.5,TimesNum+0.5,XaxisName,0,20,100,0,100,'Licking efficiency (%)',TickLabelSize,AxisLabelSize);
+        box off;
+        set(gcf, 'Renderer', 'Painter');
+        saveas(gcf,fullfile(filesavepath,sprintf('Lick efficiency comparison-delay%d-%s',iDelay,phase)),'fig');
+        close;
+    end
+
+    % Plot Dprime
+    if iLickEff == 1
+        for iDelay = 1:numel(DelayLen)
+            figure('Position',[219 303 750 600]);
+            CompareDiffGroupsTimeLapsedBehavior(phase, 'Dprime', ['delay' num2str(iDelay)], AllSessionMiceBehavior, ...
+                ColorSet, LineWidth, LineStyle, MarkerShape, ColorSet, ColorSet, MarkerSize, filesavepath);            legend(GroupName,'Location','southeast');
+            legend('boxoff');
+            % Set the coordinate axes
+            SetXYaxisProperty(1,1,TimesNum,0.5,TimesNum+0.5,XaxisName,0,20,100,0,100,'Performance (d")',TickLabelSize,AxisLabelSize);
+            box off;
+            set(gcf, 'Renderer', 'Painter');
+            saveas(gcf,fullfile(filesavepath,sprintf('Dprime comparison-delay%d-%s',iDelay,phase)),'fig');
+            close;
+        end
+    end
+
+    % Plot the licking rate of hit trials
+    for iDay = 1:TimesNum
+        for iDelay = 1:numel(DelayLen)
+            figure('Position',[219 303 750 600]);
+            for iGroup = 1:numel(AllSessionMiceBehavior)
+                plotshadow(AllSessionMiceBehavior{iGroup}.(['delay' num2str(iDelay)]).LickRate_Hit{iDay},ColorSet{iGroup},2,3,-0.05-BeforeTrial,TimeGain);
+            end
+            % Cluster-based permutation test
+            if numel(GroupName) == 3
+                [tempSigTime_group1,tempSigTime_group2] = ClusterBasedPermutationTest_ForBothReal(AllSessionMiceBehavior{1}.(['delay' num2str(iDelay)]).LickRate_Hit{iDay},AllSessionMiceBehavior{2}.(['delay' num2str(iDelay)]).LickRate_Hit{iDay});
+                LabelSignificantPositions(tempSigTime_group1-BeforeTrial*TimeGain,10,5,ColorSet{2});
+                LabelSignificantPositions(tempSigTime_group2-BeforeTrial*TimeGain,10,5,ColorSet{2});
+                [tempSigTime_group3,tempSigTime_group2] = ClusterBasedPermutationTest_ForBothReal(AllSessionMiceBehavior{3}.(['delay' num2str(iDelay)]).LickRate_Hit{iDay},AllSessionMiceBehavior{2}.(['delay' num2str(iDelay)]).LickRate_Hit{iDay});
+                LabelSignificantPositions(tempSigTime_group3-BeforeTrial*TimeGain,10,5,ColorSet{3});
+                LabelSignificantPositions(tempSigTime_group2-BeforeTrial*TimeGain,10,5,ColorSet{3});
+            elseif numel(GroupName) == 2
+                [tempSigTime_group1,tempSigTime_group2] = ClusterBasedPermutationTest_ForBothReal(AllSessionMiceBehavior{1}.(['delay' num2str(iDelay)]).LickRate_Hit{iDay},AllSessionMiceBehavior{2}.(['delay' num2str(iDelay)]).LickRate_Hit{iDay});
+                LabelSignificantPositions(tempSigTime_group1-BeforeTrial*TimeGain,10,5,ColorSet{2});
+                LabelSignificantPositions(tempSigTime_group2-BeforeTrial*TimeGain,10,5,ColorSet{2});
+            end
+            % Plot event curve
+            PlotEventCurve(0,SampOdorLen,DelayLen(iDelay),TestOdorLen,RespWindowLen,2,8);
+            SetXYaxisProperty(-1*BeforeTrial,1,size(AllSessionMiceBehavior{1}.(['delay' num2str(iDelay)]).LickRate_Hit{iDay},2)/TimeGain-BeforeTrial,-0.3,size(AllSessionMiceBehavior{1}.(['delay' num2str(iDelay)]).LickRate_Hit{iDay},2)/TimeGain-BeforeTrial,'Time from sample onset (s)',...
+                0,2,8,0,8,'Lick rate (Hz)',TickLabelSize,AxisLabelSize);
+            box off;
+            set(gcf, 'Renderer', 'Painter');
+            saveas(gcf,fullfile(filesavepath,sprintf('Lick rate comparison in hit trials-delay%d trials-day %d-%s',iDelay,iDay,phase)),'fig');
+            close;
+        end
+    end
+end
+
+save(fullfile(filesavepath,sprintf('%dGroupsMiceID_%s.mat',numel(GroupName),phase)),'GroupName','filename','-v7.3');
