@@ -36,6 +36,7 @@ shadeProps = {'Color', 'k', 'FaceAlpha', 0.2, 'EdgeColor', 'none'};  % Reusable 
 switch PlotMode
     case 1  % Mode 1: Dotted lines for all 5 events
         arrayfun(@(t) xline(t, lineProps{:}), eventTimes);  % Vectorized xline plotting
+        ylim([0 MaxYvalue]);
     
     case 2  % Mode 2: Shaded regions (sample + test) + dotted line (response end)
         % Shaded region: Sample odor phase
