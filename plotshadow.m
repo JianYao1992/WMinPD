@@ -22,7 +22,7 @@ end
 nBins = size(data, 2);
 x = (1:nBins)/TimeGain + Xshift;  % X-axis (time units)
 meanData = mean(data, 1);         % Trial-averaged data
-smoothedMean = smooth(meanData, SmoothWindow);  % Smoothed mean
+smoothedMean = smooth(meanData, SmoothWindow)';  % Smoothed mean
 
 %% 3. Calculate error bounds (STD/SEM/95%CI)
 switch IsSTDorSEM
