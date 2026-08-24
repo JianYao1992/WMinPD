@@ -39,8 +39,8 @@ switch IsSTDorSEM
     
     case 3  % 95% Confidence Interval (percentile-based)
         ci = prctile(data, [2.5, 97.5], 1);  % 2.5th/97.5th percentiles
-        upperBound = smooth(ci(2,:), SmoothWindow);
-        lowerBound = smooth(ci(1,:), SmoothWindow);
+        upperBound = smooth(ci(2,:), SmoothWindow)';
+        lowerBound = smooth(ci(1,:), SmoothWindow)';
 end
 
 %% 4. Plot mean line + shaded error band
